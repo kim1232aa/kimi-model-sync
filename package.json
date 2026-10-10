@@ -1,0 +1,35 @@
+{
+  "name": "kimi-model-sync",
+  "version": "1.0.0",
+  "description": "Kimi Code CLI plugin and utility: automatically discover models from custom gateways, normalize capabilities against models.dev, and update ~/.kimi-code/config.toml.",
+  "type": "module",
+  "main": "lib/index.js",
+  "bin": {
+    "kimi-model-sync": "./bin/kimi-model-sync.js"
+  },
+  "scripts": {
+    "test": "node --test test/kimi-model-sync.test.js"
+  },
+  "keywords": [
+    "kimi-code",
+    "kimi-plugin",
+    "model-sync",
+    "models-dev",
+    "ai-agent"
+  ],
+  "author": "kim1232aa",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin",
+    "commands",
+    "lib",
+    "skills",
+    "kimi.plugin.json",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ]
+}

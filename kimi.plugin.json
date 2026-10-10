@@ -1,0 +1,12 @@
+{
+  "name": "kimi-model-sync",
+  "version": "1.0.0",
+  "description": "Automatically discover models from custom providers, normalize capabilities against models.dev, and update ~/.kimi-code/config.toml.",
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Kimi Model Sync",
+    "shortDescription": "Sync and normalize models from custom gateway providers",
+    "developerName": "kim1232aa"
+  }
+}
