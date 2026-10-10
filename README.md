@@ -10,11 +10,15 @@ Kimi Code CLI plugin and tool: automatically discover online models from custom 
 
 - **Slash Command Integration**: Directly invoke `/kimi-model-sync:refresh` in Kimi Code chat to synchronize models interactively.
 - **Agent Skill Support**: Ships with `/skill:model-sync`, allowing the AI agent to inspect and refresh configurations automatically upon request.
+- **Dry-run Preview Mode**: Pass `--dry-run` (or `-n`) to inspect planned changes and detailed field diffs before writing to disk.
+- **Automatic /v1 Probe & Fallback**: Smartly tests `/v1/models` and falls back to `/models`, preventing 404 errors on gateways configured without `/v1`.
+- **Non-Destructive Patching (Zero Config Loss)**: Employs `smol-toml` AST parsing with verbatim section preservation, safeguarding existing comments, nested tables (e.g. `[providers."managed:kimi-code".oauth]`), and user custom fields (e.g. `video_in`).
+- **Deep Effort & Modality Merging**: Automatically preserves user-defined reasoning efforts (e.g. `xhigh`, `minimal`) and modalities without clobbering fine-tuned settings.
 - **Context Ceiling Protection**: Overrides gateway cutoff ceilings (such as 272k or 128k) using `Math.max(gateway, models.dev)`, restoring true model context limits (e.g., 1,050,000 tokens for `gpt-6-astra`).
+- **Built-in & Managed Guard**: Automatically skips built-in official providers (`managed:kimi-code`, OAuth, official domains) unless explicitly targeted via `sync = true`.
 - **Fuzzy Gateway Label Stripping**: Normalizes bracket tags (`[1m]`), route prefixes (`cx/`, `Agent-Plan/`), task qualifiers (`-review`, `-sol`, `-luna`), and tier suffixes (`-high`, `-low`, `-tiered`).
-- **Kimi Code Capability Mapping**: Accurately infers and emits Kimi-specific capabilities (`image_in`, `thinking`, `always_thinking`, `tool_use`) and thinking effort arrays (`support_efforts = ["low", "medium", "high", "max"]`).
 - **Non-Chat Model Filtering**: Automatically excludes embeddings, speech, text-to-speech, and image generation models from chat model tables.
-- **Zero-Dependency Atomic Writes**: Implements clean TOML parsing and serialization with automatic `config.toml.bak` creation and PID-based atomic file replacement.
+- **Zero-Corruption Atomic Writes**: Implements clean TOML serialization with automatic `config.toml.bak` creation and PID-based atomic file replacement.
 
 ---
 

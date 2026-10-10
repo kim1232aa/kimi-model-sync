@@ -10,11 +10,15 @@ Kimi Code CLI 官方插件与自动化工具：自动从中转和自定义网关
 
 - **官方斜杠命令集成**：在 Kimi Code 对话框中直接输入 `/kimi-model-sync:refresh`，一键交互式触发模型同步。
 - **Agent 技能支持**：配套内置 `/skill:model-sync` 技能，Agent 在需要时可自主检测并执行模型列表同步。
+- **--dry-run 预览模式**：支持传入 `--dry-run`（或 `-n`、`--preview`），在修改磁盘前清晰预览新增、更新字段与能力 Diff，零改动风险。
+- **智能 /v1 探测与平滑回退**：自动探测 `/v1/models` 与 `/models`，彻底解决网关 `base_url` 未写 `/v1` 导致 404 Not Found 的问题。
+- **非破坏性切片合并（零配置丢失）**：采用 `smol-toml` 结合原文切片保护机制，100% 完整保留原有注释、嵌套表（如 `[providers."managed:kimi-code".oauth]`）与用户自定义扩展字段（如 `video_in`、`custom_note`）。
+- **思考档位与多模态深度保留**：深度合并思考档位（保留 `xhigh`、`minimal` 等特化档位），杜绝直接写死四档覆盖；保留用户已有自定义能力。
 - **防止上下文截断 (272k 保护)**：针对中转网关计费阈值截断（如 272k / 128k），使用 `Math.max(网关值, 官方标准值)` 恢复真实百万上下文（如 `gpt-6-astra` 恢复为 105 万）。
+- **内置与托管提供商严密规避**：严格跳过官方托管账号 `managed:kimi-code`、OAuth 授权账号以及官方域名直连服务，避免误伤与配置污染（支持 `sync = true` 显式开启）。
 - **标签与路由智能剥离**：自动识别并剔除中括号计费标签（`[1m]`）、路由前缀（`cx/`, `Agent-Plan/`）、任务修饰符（`-review`, `-sol`, `-luna`）及等级后缀（`-high`, `-low`, `-tiered`）。
-- **Kimi Code 专属能力对齐**：精确推断并生成 Kimi 规范能力数组（`image_in` 看图、`thinking` 思考、`always_thinking` 强制思考、`tool_use` 工具调用）与思考阶梯（`support_efforts = ["low", "medium", "high", "max"]`）。
 - **非聊天模型过滤**：自动过滤 embedding、tts、whisper 语音及绘图模型，保持模型列表整洁。
-- **零外部依赖与原子安全写入**：纯原生 TOML 解析器与生成器，自动生成 `config.toml.bak` 备份文件并通过 PID 临时文件原子替换，杜绝文件损坏。
+- **原子安全写入与自动备份**：写入前自动在同级生成 `config.toml.bak`，并通过 PID 临时文件原子替换，杜绝文件损坏。
 
 ---
 
