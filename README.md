@@ -87,7 +87,7 @@ Example output:
 ------------------------------------------------------------
 
 ✨ All custom provider models synchronized successfully with models.dev!
-💡 Restart Kimi Code CLI or run `/reload` to apply updated models.
+💡 config.toml was updated. Run `/reload` in Kimi Code (or restart it) so the new models show up in /model.
 ```
 
 ---
@@ -106,3 +106,11 @@ Example output:
 ## License
 
 MIT License
+
+## Write safety (v1.1.0)
+
+- **Validate before writing**: the new `config.toml` is fully parsed with a TOML parser and checked so that *only* the targeted models changed (every other top-level table and every untouched model must be field-for-field identical). If any check fails the tool **refuses to write** (`Refusing to write config.toml`) and leaves the original file alone — Kimi Code rejects an invalid TOML file as a whole, so a broken file must never reach disk. `--dry-run` runs the same checks.
+- **Sub-tables survive**: `[models."<alias>".overrides]` and friends are merged into the model and written exactly once; non-target sections (`[providers."managed:kimi-code".oauth]`, `[thinking]`, `[secondary_model]`, `[[hooks]]`, …) and their comments stay verbatim.
+- **`support_efforts` is always `array<string>`**, taken from the `type = "effort"` entry of models.dev `reasoning_options` (`none` becomes `off_effort = "none"`); entries corrupted by earlier releases are healed on the next sync.
+- **Idempotent**: nothing to change → no write, no `.bak`.
+- After a write, run `/reload` (or restart) in Kimi Code — the `/model` list only refreshes on reload.

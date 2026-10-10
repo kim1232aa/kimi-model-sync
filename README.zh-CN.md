@@ -87,7 +87,7 @@ kimi-model-sync
 ------------------------------------------------------------
 
 ✨ All custom provider models synchronized successfully with models.dev!
-💡 Restart Kimi Code CLI or run `/reload` to apply updated models.
+💡 config.toml was updated. Run `/reload` in Kimi Code (or restart it) so the new models show up in /model.
 ```
 
 ---
@@ -106,3 +106,11 @@ kimi-model-sync
 ## 开源协议
 
 MIT License
+
+## 写入安全（v1.1.0）
+
+- **写入前先验证**：生成的新 `config.toml` 会先用 TOML 解析器完整解析，并校验“只有目标模型发生变化”（其他顶层配置、其他模型逐字段不变）。任一项不通过就**拒绝写入**并报 `Refusing to write config.toml`，原文件保持不动（Kimi Code 对非法 TOML 会整份拒绝，所以绝不写出坏文件）。`--dry-run` 同样会走这套校验。
+- **子表保留**：`[models."<alias>".overrides]` 等子表随模型一起合并后只写一次；`[providers."managed:kimi-code".oauth]`、`[thinking]`、`[secondary_model]`、`[[hooks]]` 等非目标段落保持原文（含注释）。
+- **`support_efforts` 一律是字符串数组**，只取 models.dev `reasoning_options` 里 `type = "effort"` 的档位（`none` 会转成 `off_effort = "none"`）；旧版本写坏的条目会在下次同步时自动修复。
+- **幂等**：没有变化时不写文件、不产生 `.bak`。
+- 写入后必须在 Kimi Code 里执行 `/reload`（或重启）才会刷新 `/model` 列表。

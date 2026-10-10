@@ -63,8 +63,12 @@ async function main() {
       console.log('\n⚠️  Some providers experienced synchronization errors. Check logs above.');
       process.exit(1);
     } else {
-      console.log('\n✨ All custom provider models synchronized successfully with models.dev!');
-      console.log('💡 Restart Kimi Code CLI or run `/reload` to apply updated models.\n');
+      if (report.wrote) {
+        console.log('\n✨ All custom provider models synchronized successfully with models.dev!');
+        console.log('💡 config.toml was updated. Run `/reload` in Kimi Code (or restart it) so the new models show up in /model.\n');
+      } else {
+        console.log('\n✅ Already up to date — config.toml was not modified.\n');
+      }
       process.exit(0);
     }
   } catch (err) {

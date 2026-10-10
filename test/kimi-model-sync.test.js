@@ -12,6 +12,7 @@ import {
   isCustomProvider,
   getCandidateModelUrls,
   mergeModelEntry,
+  extractEffortsFromReasoningOptions,
 } from '../lib/core.js';
 
 import {
@@ -19,6 +20,9 @@ import {
   stringifyToml,
   patchConfigModels,
   writeConfigAtomic,
+  parseTableHeader,
+  parseModelHeader,
+  validatePatchedConfig,
 } from '../lib/kimi-toml.js';
 
 import { syncKimiModels } from '../lib/index.js';
@@ -414,6 +418,274 @@ api_key = "mock-secret"
       assert.equal(updatedConfig.models['test-provider/gpt-5.6-luna'].provider, 'test-provider');
       assert.ok(updatedConfig.models['test-provider/gpt-5.6-luna'].capabilities.includes('thinking'));
       assert.ok(updatedConfig.models['test-provider/gpt-5.6-luna'].capabilities.includes('image_in'));
+    } finally {
+      globalThis.fetch = originalFetch;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+describe('regression: config.toml must stay valid after sync', () => {
+  const BASE = `# header comment
+default_model = "Google/gemini-3.8-flash"
+
+[providers."managed:kimi-code"]
+type = "kimi"
+base_url = "https://api.kimi.com/coding/v1"
+
+[providers."managed:kimi-code".oauth]
+storage = "file"
+key = "oauth/kimi-code"
+
+[providers.Google]
+type = "openai"
+base_url = "https://gw.example/v1"
+api_key = "k"
+
+[thinking]
+enabled = true
+effort = "high"
+
+[models."Google/gemini-3.8-flash"]
+provider = "Google"
+model = "gemini-3.8-flash"
+max_context_size = 100000
+capabilities = [ "tool_use" ]
+
+# my pinned limits
+[models."Google/gemini-3.8-flash".overrides]
+max_context_size = 131072
+display_name = "Gemini (mine)"
+
+[models."Google/untouched"]
+provider = "Google"
+model = "untouched"
+max_context_size = 1000
+
+[models."Google/untouched".overrides]
+display_name = "keep me"
+
+[secondary_model]
+default_model = "Google/gemini-3.8-flash"
+`;
+
+  const devReasoning = [
+    { type: 'effort', values: ['none', 'default', 'low', 'medium', 'high', ''] },
+    { type: 'toggle' },
+    { type: 'budget_tokens' },
+  ];
+
+  it('extractEffortsFromReasoningOptions returns ordered string efforts, never objects', () => {
+    const r = extractEffortsFromReasoningOptions(devReasoning);
+    assert.deepEqual(r.efforts, ['low', 'medium', 'high']);
+    assert.equal(r.canDisable, true);
+    assert.equal(extractEffortsFromReasoningOptions([{ type: 'toggle' }]), null);
+    assert.equal(extractEffortsFromReasoningOptions(undefined), null);
+    assert.equal(extractEffortsFromReasoningOptions({ foo: 1 }), null);
+  });
+
+  it('buildKimiModel writes support_efforts as plain strings from models.dev reasoning_options', () => {
+    const m = buildKimiModel('Google', 'gemini-3.8-flash', { capabilities: { reasoning: true } }, {
+      reasoning: true,
+      limit: { context: 1048576, output: 65536 },
+      reasoning_options: devReasoning,
+    });
+    assert.deepEqual(m.support_efforts, ['low', 'medium', 'high']);
+    assert.equal(m.default_effort, 'medium');
+    assert.equal(m.off_effort, 'none');
+    assert.ok(m.support_efforts.every((e) => typeof e === 'string'));
+
+    // toggle/budget-only reasoning model: do not invent graded efforts
+    const t = buildKimiModel('Google', 'x-thinking', { capabilities: { reasoning: true } }, {
+      reasoning: true,
+      reasoning_options: [{ type: 'toggle' }],
+    });
+    assert.equal(t.support_efforts, undefined);
+  });
+
+  it('mergeModelEntry heals support_efforts corrupted by older releases and keeps overrides', () => {
+    const merged = mergeModelEntry(
+      {
+        support_efforts: [{ type: 'effort', values: ['low'] }, { type: 'toggle' }, 'xhigh'],
+        overrides: { max_context_size: 131072 },
+      },
+      { support_efforts: ['low', 'high'], overrides: undefined },
+    );
+    assert.deepEqual(merged.support_efforts, ['low', 'high', 'xhigh']);
+    assert.deepEqual(merged.overrides, { max_context_size: 131072 });
+
+    const allBad = mergeModelEntry({ support_efforts: [{ type: 'toggle' }] }, { support_efforts: [] });
+    assert.equal(allBad.support_efforts, undefined);
+  });
+
+  it('parses table headers incl. sub-tables, quoted ] . # and trailing comments', () => {
+    assert.deepEqual(parseTableHeader('[models."a/b"]'), { isArray: false, parts: ['models', 'a/b'] });
+    assert.deepEqual(parseTableHeader('[ models . "a/b" . overrides ]  # c'), {
+      isArray: false,
+      parts: ['models', 'a/b', 'overrides'],
+    });
+    assert.deepEqual(parseTableHeader('[models."weird]#.name[1m]"]').parts, ['models', 'weird]#.name[1m]']);
+    assert.deepEqual(parseTableHeader("[models.'single.q']").parts, ['models', 'single.q']);
+    assert.equal(parseTableHeader('[[permission.rules]]').isArray, true);
+    assert.equal(parseTableHeader('key = "[models.x]"'), null);
+    assert.equal(parseTableHeader('# [models.x]'), null);
+    assert.deepEqual(parseModelHeader('[models."a/b".overrides]'), {
+      modelKey: 'a/b',
+      isSubTable: true,
+      subPath: ['overrides'],
+    });
+    assert.equal(parseModelHeader('[providers.x]'), null);
+  });
+
+  it('patchConfigModels keeps .overrides exactly once and emits valid TOML', () => {
+    const original = parseToml(BASE);
+    const merged = mergeModelEntry(
+      original.models['Google/gemini-3.8-flash'],
+      buildKimiModel('Google', 'gemini-3.8-flash', { capabilities: { reasoning: true } }, {
+        reasoning: true,
+        limit: { context: 1048576, output: 65536 },
+        reasoning_options: devReasoning,
+      }),
+    );
+    const upsert = {
+      'Google/gemini-3.8-flash': merged,
+      'Google/brand-new': buildKimiModel('Google', 'brand-new', {}, undefined),
+    };
+    const patched = patchConfigModels(BASE, upsert);
+
+    const headers = patched.match(/^\s*\[\[?[^\]]+\]\]?\s*$/gm).map((h) => h.trim());
+    assert.equal(new Set(headers).size, headers.length, `duplicate headers: ${headers.join(' | ')}`);
+    assert.ok(!patched.includes('support_efforts]'), 'support_efforts must not become a table');
+
+    const parsed = parseToml(patched); // must not throw
+    const m = parsed.models['Google/gemini-3.8-flash'];
+    assert.deepEqual(m.support_efforts, ['low', 'medium', 'high']);
+    assert.equal(m.max_context_size, 1048576);
+    assert.deepEqual({ ...m.overrides }, { max_context_size: 131072, display_name: 'Gemini (mine)' });
+    assert.ok(parsed.models['Google/brand-new']);
+
+    // everything else untouched
+    assert.deepEqual(parsed.models['Google/untouched'], original.models['Google/untouched']);
+    assert.deepEqual(parsed.providers['managed:kimi-code'], original.providers['managed:kimi-code']);
+    assert.deepEqual(parsed.thinking, original.thinking);
+    assert.deepEqual(parsed.secondary_model, original.secondary_model);
+    assert.ok(patched.startsWith('# header comment'));
+    assert.ok(patched.includes('[models."Google/untouched".overrides]'));
+    validatePatchedConfig(original, patched, upsert);
+  });
+
+  it('patchConfigModels is a no-op without upserts and idempotent on a second run', () => {
+    assert.equal(patchConfigModels(BASE, {}), BASE);
+    const original = parseToml(BASE);
+    const upsert = { 'Google/new-one': buildKimiModel('Google', 'new-one', {}, undefined) };
+    const once = patchConfigModels(BASE, upsert);
+    const twice = patchConfigModels(once, { 'Google/new-one': parseToml(once).models['Google/new-one'] });
+    assert.deepEqual(parseToml(twice), parseToml(once));
+    assert.deepEqual(parseToml(once).models['Google/untouched'], original.models['Google/untouched']);
+  });
+
+  it('handles models whose alias contains dots/brackets and array-of-tables sections', () => {
+    const text = `[[permission.rules]]
+decision = "allow"
+pattern = "Read"
+
+[models."gpt-4.1[1m]"]
+provider = "p"
+model = "gpt-4.1"
+max_context_size = 10
+
+[models."gpt-4.1[1m]".overrides]
+display_name = "x"
+
+[[hooks]]
+event = "PreToolUse"
+command = "echo hi"
+`;
+    const upsert = {
+      'gpt-4.1[1m]': mergeModelEntry(parseToml(text).models['gpt-4.1[1m]'], {
+        provider: 'p', model: 'gpt-4.1', max_context_size: 1050000, capabilities: ['tool_use'],
+      }),
+    };
+    const patched = patchConfigModels(text, upsert);
+    const parsed = parseToml(patched);
+    assert.equal(parsed.models['gpt-4.1[1m]'].max_context_size, 1050000);
+    assert.equal(parsed.models['gpt-4.1[1m]'].overrides.display_name, 'x');
+    assert.equal(parsed.permission.rules.length, 1);
+    assert.equal(parsed.hooks.length, 1);
+    assert.equal(patched.match(/^\[\[hooks\]\]$/gm).length, 1);
+  });
+
+  it('validatePatchedConfig refuses invalid TOML and unexpected changes', () => {
+    const original = parseToml(BASE);
+    assert.throws(() => validatePatchedConfig(original, BASE + '\n[models."Google/untouched".overrides]\nx = 1\n', {}), /invalid/);
+    assert.throws(
+      () => validatePatchedConfig(original, BASE.replace('effort = "high"', 'effort = "low"'), {}),
+      /top-level "thinking"/,
+    );
+    assert.throws(
+      () => validatePatchedConfig(original, BASE.replace('model = "untouched"', 'model = "other"'), {}),
+      /untouched model/,
+    );
+  });
+
+  it('end-to-end: large gateway list over an existing config with overrides stays valid, dry-run == real', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-e2e-'));
+    const configPath = path.join(tempDir, 'config.toml');
+    const cacheDir = path.join(tempDir, 'models-dev-cache.json');
+    const text = BASE.replace('https://gw.example/v1', 'https://gw.example/v1');
+    fs.writeFileSync(configPath, text);
+    fs.writeFileSync(
+      cacheDir,
+      JSON.stringify({
+        google: {
+          models: {
+            'gemini-3.8-flash': {
+              id: 'gemini-3.8-flash', reasoning: true,
+              limit: { context: 1048576, output: 65536 },
+              modalities: { input: ['text', 'image'] },
+              reasoning_options: devReasoning,
+            },
+          },
+        },
+      }),
+    );
+
+    const remote = [{ id: 'gemini-3.8-flash' }];
+    for (let i = 0; i < 300; i++) remote.push({ id: `vendor/model-${i}-thinking` });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).startsWith('https://gw.example/')) {
+        return new Response(JSON.stringify({ data: remote }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    try {
+      const opts = { configPath, modelsDevCachePath: cacheDir, logger: { warn() {}, error() {}, log() {} } };
+      const before = fs.readFileSync(configPath, 'utf8');
+      const dry = await syncKimiModels({ ...opts, dryRun: true });
+      assert.equal(dry.wrote, false);
+      assert.equal(fs.readFileSync(configPath, 'utf8'), before, 'dry-run must not touch the file');
+
+      const real = await syncKimiModels(opts);
+      assert.equal(real.wrote, true);
+      assert.equal(real.diffSummary.length, dry.diffSummary.length);
+
+      const parsed = parseToml(fs.readFileSync(configPath, 'utf8')); // must not throw
+      assert.ok(Object.keys(parsed.models).length >= 300);
+      assert.deepEqual({ ...parsed.models['Google/gemini-3.8-flash'].overrides }, { max_context_size: 131072, display_name: 'Gemini (mine)' });
+      assert.deepEqual(parsed.models['Google/gemini-3.8-flash'].support_efforts, ['low', 'medium', 'high']);
+      assert.deepEqual({ ...parsed.providers['managed:kimi-code'].oauth }, { storage: 'file', key: 'oauth/kimi-code' });
+      for (const m of Object.values(parsed.models)) {
+        if (m.support_efforts !== undefined) {
+          assert.ok(Array.isArray(m.support_efforts) && m.support_efforts.every((e) => typeof e === 'string'));
+        }
+      }
+
+      // second run changes nothing
+      const again = await syncKimiModels(opts);
+      assert.equal(again.wrote, false);
     } finally {
       globalThis.fetch = originalFetch;
       fs.rmSync(tempDir, { recursive: true, force: true });
