@@ -1,6 +1,6 @@
 {
   "name": "kimi-model-sync",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Automatically discover models from custom providers, normalize capabilities against models.dev, and update ~/.kimi-code/config.toml.",
   "commands": "./commands/",
   "skills": "./skills/",

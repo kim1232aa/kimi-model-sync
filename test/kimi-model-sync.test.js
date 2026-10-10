@@ -13,6 +13,7 @@ import {
   getCandidateModelUrls,
   mergeModelEntry,
   extractEffortsFromReasoningOptions,
+  lookupModelsDev,
 } from '../lib/core.js';
 
 import {
@@ -691,4 +692,16 @@ command = "echo hi"
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+});
+
+it('lookupModelsDev does not borrow another model for unknown ids', () => {
+  const catalog = { openai: { models: { 'gpt-5.4': { id: 'gpt-5.4', name: 'GPT-5.4', limit: { context: 400000, output: 128000 } } } } };
+  assert.equal(lookupModelsDev(catalog, 'gpt-6'), null);
+  assert.equal(lookupModelsDev(catalog, 'gpt-6.2'), null);
+  assert.equal(lookupModelsDev(catalog, 'gpt-5.4').name, 'GPT-5.4');
+});
+
+it('buildKimiModel never generates display_name', () => {
+  const m = buildKimiModel('p', 'cc/claude-sonnet-5-5', { id: 'cc/claude-sonnet-5-5', name: 'Gateway Name' }, { name: 'Claude Sonnet 5.5', limit: { context: 1000000, output: 64000 } }, {}, null);
+  assert.equal('display_name' in m, false);
 });
