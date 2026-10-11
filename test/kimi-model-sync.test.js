@@ -39,6 +39,10 @@ describe('kimi-model-sync unit tests', () => {
     assert.equal(isNonChatModel('text-embedding-3-small'), true);
     assert.equal(isNonChatModel('whisper-1'), true);
     assert.equal(isNonChatModel('dall-e-3'), true);
+    assert.equal(isNonChatModel('relay/kling/kling-video-o1'), true);
+    assert.equal(isNonChatModel('relay/kling/kling-v3'), true);
+    assert.equal(isNonChatModel('relay/gemini-3-pro-image'), true);
+    assert.equal(isNonChatModel('gemini-3.1-flash-image'), true);
     assert.equal(isNonChatModel('bge-reranker-large'), true);
     assert.equal(isNonChatModel('gpt-5.6-luna'), false);
     assert.equal(isNonChatModel('claude-3-7-sonnet'), false);
@@ -78,8 +82,9 @@ describe('kimi-model-sync unit tests', () => {
     assert.ok(result.capabilities.includes('image_in'));
     assert.ok(result.capabilities.includes('thinking'));
     assert.ok(result.capabilities.includes('tool_use'));
-    assert.deepEqual(result.support_efforts, ['low', 'medium', 'high', 'max']);
-    assert.equal(result.default_effort, 'medium');
+    // models.dev gave no effort levels: nothing is invented
+    assert.equal(result.support_efforts, undefined);
+    assert.equal(result.default_effort, undefined);
   });
 
   it('resolves representative provider during tie-breaking', () => {
@@ -705,3 +710,32 @@ it('buildKimiModel never generates display_name', () => {
   const m = buildKimiModel('p', 'cc/claude-sonnet-5-5', { id: 'cc/claude-sonnet-5-5', name: 'Gateway Name' }, { name: 'Claude Sonnet 5.5', limit: { context: 1000000, output: 64000 } }, {}, null);
   assert.equal('display_name' in m, false);
 });
+
+it('never guesses capabilities from the model id', () => {
+  for (const id of ['gpt-6-codex', 'relay/eco-gpt-6', 'relay/kling/kling-video-o1', 'grok-4.7', 'kimi-k3', 'deepseek-r1', 'claude-4-x', 'gemini-9']) {
+    const m = buildKimiModel('p', id, {}, undefined, {}, null);
+    assert.deepEqual(m.capabilities, ['tool_use'], id);
+    assert.equal(m.support_efforts, undefined, id);
+    assert.equal(m.default_effort, undefined, id);
+    assert.equal(m.max_context_size, 128000, id);
+    assert.equal(m.max_output_size, 16384, id);
+  }
+  // explicit signals are still honoured
+  const m = buildKimiModel('p', 'x', { capabilities: { vision: true, reasoning: true } }, undefined, {}, null);
+  assert.deepEqual(m.capabilities, ['tool_use', 'image_in', 'thinking']);
+  assert.equal(m.support_efforts, undefined);
+  // never always_thinking, even for ids that used to match
+  const g = buildKimiModel('p', 'grok-4.7', { capabilities: { reasoning: true } }, { reasoning: true }, {}, null);
+  assert.equal(g.capabilities.includes('always_thinking'), false);
+});
+
+it('generateLookupCandidates strips trailing date snapshots', () => {
+  const c = generateLookupCandidates('Relay-Plan/doubao-1-5-thinking-pro-250415');
+  assert.ok(c.includes('doubao-1-5-thinking-pro'));
+  assert.ok(c.includes('doubao-1.5-thinking-pro'));
+  assert.ok(generateLookupCandidates('gpt-5.4-2026-03-05').includes('gpt-5.4'));
+  assert.ok(generateLookupCandidates('gpt-5-20250807').includes('gpt-5'));
+  // not a date: model version numbers must be left alone
+  assert.equal(generateLookupCandidates('qwen3-235b').includes('qwen3'), false);
+});
+
